@@ -1,0 +1,73 @@
+# values.yaml — valores parametrizáveis do chart do Mural.
+# Imagens, tags, host do Ingress e credencial do banco vivem aqui.
+
+# Host do Ingress. *.localtest.me resolve para 127.0.0.1 (sem mexer em /etc/hosts).
+ingress:
+  className: traefik
+  host: mural.localtest.me
+
+# ---------------------------------------------------------------------------
+# API (Go) — imagem mínima buildada a partir de app/docker/api.Dockerfile.
+# ---------------------------------------------------------------------------
+api:
+  image:
+    repository: mural-api
+    tag: local
+    pullPolicy: IfNotPresent
+  replicas: 2
+  port: 8080
+  resources:
+    requests:
+      cpu: 50m
+      memory: 32Mi
+    limits:
+      cpu: 250m
+      memory: 128Mi
+
+# ---------------------------------------------------------------------------
+# Front (nginx) — imagem buildada a partir de app/docker/web.Dockerfile.
+# ---------------------------------------------------------------------------
+web:
+  image:
+    repository: mural-web
+    tag: local
+    pullPolicy: IfNotPresent
+  replicas: 2
+  port: 8080
+  resources:
+    requests:
+      cpu: 25m
+      memory: 16Mi
+    limits:
+      cpu: 100m
+      memory: 64Mi
+
+# ---------------------------------------------------------------------------
+# Postgres — StatefulSet + PVC. Imagem oficial.
+# ---------------------------------------------------------------------------
+postgres:
+  image:
+    repository: postgres
+    tag: "16-alpine"
+    pullPolicy: IfNotPresent
+  port: 5432
+  # Nome do banco e usuário (não são segredo; a SENHA vem do Secret).
+  database: mural
+  user: mural
+  storage: 1Gi
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+# ---------------------------------------------------------------------------
+# Credencial do banco. A SENHA é materializada num Secret (nunca em ConfigMap
+# ou Deployment). A DATABASE_URL completa é montada no Secret a partir destes
+# valores + host/porta/usuario/banco. Em produção, sobrescreva via --set ou
+# um values seguro fora do versionamento.
+# ---------------------------------------------------------------------------
+db:
+  password: "mural_secret"

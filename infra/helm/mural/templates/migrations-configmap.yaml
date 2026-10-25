@@ -1,0 +1,14 @@
+# ConfigMap com as migrations (001_init.sql, 002_seed.sql).
+# As migrations ficam em files/migrations e são injetadas aqui via .Files.Glob,
+# para o Job de migração aplicá-las na ordem.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "mural.fullname" . }}-migrations
+  labels:
+    {{- include "mural.labels" . | nindent 4 }}
+data:
+{{- range $path, $_ := .Files.Glob "files/migrations/*.sql" }}
+  {{ base $path }}: |
+{{ $.Files.Get $path | indent 4 }}
+{{- end }}

@@ -1,0 +1,65 @@
+# Job de migração — resolve a fricção nº 1: a API não cria a tabela sozinha.
+# É um recurso normal do chart (não um hook), para conviver com `helm --wait`
+# sem deadlock: o Job espera o Postgres aceitar conexões (until psql) e aplica
+# as migrations na ordem. A readiness da API (/readyz) só passa DEPOIS que este
+# Job cria o schema — é o que segura o tráfego até a migração concluir.
+# Como recurso normal e imutável, um segundo `apply` idêntico é no-op (não
+# recria o Job), preservando a idempotência.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "mural.fullname" . }}-migrate
+  labels:
+    {{- include "mural.labels" . | nindent 4 }}
+    app.kubernetes.io/component: migrate
+spec:
+  backoffLimit: 10
+  template:
+    metadata:
+      labels:
+        {{- include "mural.labels" . | nindent 8 }}
+        app.kubernetes.io/component: migrate
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: migrate
+          image: "{{ .Values.postgres.image.repository }}:{{ .Values.postgres.image.tag }}"
+          imagePullPolicy: {{ .Values.postgres.image.pullPolicy }}
+          env:
+            # DATABASE_URL completa vem do Secret (carrega a senha).
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "mural.secret.name" . }}
+                  key: database-url
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              # Espera o Postgres aceitar conexões antes de migrar.
+              until psql "$DATABASE_URL" -c '\q' 2>/dev/null; do
+                echo "aguardando o Postgres aceitar conexoes...";
+                sleep 2;
+              done
+              # Aplica cada migration na ordem (ON_ERROR_STOP garante falha limpa).
+              for f in $(ls /migrations/*.sql | sort); do
+                echo "aplicando $f";
+                psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$f";
+              done
+              echo "migrations concluidas"
+          resources:
+            requests:
+              cpu: 50m
+              memory: 32Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+          volumeMounts:
+            - name: migrations
+              mountPath: /migrations
+              readOnly: true
+      volumes:
+        - name: migrations
+          configMap:
+            name: {{ include "mural.fullname" . }}-migrations

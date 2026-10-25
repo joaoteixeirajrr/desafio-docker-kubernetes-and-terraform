@@ -1,0 +1,33 @@
+# Ingress (Traefik): porta de entrada do cluster.
+#   /     -> Service do front (nginx)
+#   /api  -> Service da API (Go)
+# Exposto em http://{{ .Values.ingress.host }} via port-mapping 80 do kind.
+# A API serve as rotas sob /api/messages, então o caminho /api cai direto nela.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "mural.fullname" . }}
+  labels:
+    {{- include "mural.labels" . | nindent 4 }}
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  rules:
+    - host: {{ .Values.ingress.host | quote }}
+      http:
+        paths:
+          # Mais específico primeiro: /api vai para a API.
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "mural.api.service" . }}
+                port:
+                  number: 80
+          # Raiz vai para o front.
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "mural.web.service" . }}
+                port:
+                  number: 80
