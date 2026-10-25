@@ -1,0 +1,78 @@
+# docker-compose.yml — SOMENTE para entender a aplicação localmente.
+# NÃO é a entrega (a entrega é Docker + Helm + Terraform). Usa imagens oficiais
+# de propósito. Ordem de subida: banco -> migração -> API -> front.
+#
+#   docker compose up --build
+#   # abra http://localhost:8080
+
+services:
+  # Banco: persiste os dados e sinaliza prontidão via healthcheck.
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: mural
+      POSTGRES_PASSWORD: mural_secret
+      POSTGRES_DB: mural
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mural -d mural"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    # Sem publicar porta: só os outros serviços acessam o banco.
+
+  # Migração: aplica TODAS as migrations na ordem e encerra. Só roda depois
+  # que o banco está saudável. Não é um serviço que fica no ar.
+  migrate:
+    image: postgres:16-alpine
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: mural_secret
+    volumes:
+      - ./app/api/migrations:/migrations:ro
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        for f in $$(ls /migrations/*.sql | sort); do
+          echo "aplicando $$f";
+          psql -h db -U mural -d mural -v ON_ERROR_STOP=1 -f "$$f";
+        done
+        echo "migrations concluídas"
+
+  # API: sobe a partir do código-fonte via `go run`. Só depois do banco pronto
+  # E da migração concluída. Configuração 100% por env (DATABASE_URL + PORT).
+  api:
+    image: golang:1.23-alpine
+    working_dir: /src
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: postgres://mural:mural_secret@db:5432/mural?sslmode=disable
+      PORT: "8080"
+    volumes:
+      - ./app/api:/src
+    command: ["go", "run", "."]
+
+  # Front: nginx servindo o estático e fazendo proxy de /api para a API.
+  # O endereço da API vem de env (API_UPSTREAM). Publica a porta 8080.
+  web:
+    image: nginx:1.27-alpine
+    depends_on:
+      - api
+    environment:
+      API_UPSTREAM: api:8080
+    volumes:
+      - ./app/web:/usr/share/nginx/html:ro
+      - ./app/web/nginx.conf.template:/etc/nginx/templates/default.conf.template:ro
+    ports:
+      - "8080:8080"
+
+volumes:
+  db_data:

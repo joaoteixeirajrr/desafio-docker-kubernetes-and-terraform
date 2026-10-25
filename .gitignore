@@ -14,3 +14,8 @@ node_modules/
 .DS_Store
 
 /solucao
+
+# Arquivos de desafio/plano (não versionar)
+desafio.md
+PLANO.md
+plano.md
