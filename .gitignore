@@ -8,6 +8,8 @@
 *.tfstate.*
 .terraform.lock.hcl
 solucao/terraform/.kube/
+# kubeconfig gerado pelo provider kind
+infra/terraform/*-config
 
 # Node / misc
 node_modules/
